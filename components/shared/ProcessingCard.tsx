@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { useDreamStatus } from '../../hooks/useDreamStatus';
@@ -12,11 +13,16 @@ const STATUS_MESSAGES: Record<string, string> = {
 
 export function ProcessingCard({ dreamId, recordedAt, onReady }: Props) {
   const status = useDreamStatus(dreamId);
-  if (status === 'ready') { onReady(); return null; }
+
+  useEffect(() => {
+    if (status === 'ready') onReady();
+  }, [status, onReady]);
+
+  if (status === 'ready') return null;
 
   async function handleRetry() {
-    // Reset status to processing then re-invoke transcribe
-    await supabase.from('dreams').update({ status: 'processing' }).eq('id', dreamId);
+    const { error: updateErr } = await supabase.from('dreams').update({ status: 'processing' }).eq('id', dreamId);
+    if (updateErr) return;
     await supabase.functions.invoke('transcribe', { body: { dream_id: dreamId } });
   }
 

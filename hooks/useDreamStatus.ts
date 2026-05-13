@@ -9,14 +9,15 @@ export function useDreamStatus(dreamId: string) {
 
   useEffect(() => {
     supabase.from('dreams').select('status').eq('id', dreamId).single()
-      .then(({ data }) => { if (data) setStatus(data.status); });
+      .then(({ data }) => { if (data) setStatus(prev => prev === null ? data.status : prev); });
 
     const channel = supabase
       .channel(`dream-status-${dreamId}`)
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'dreams', filter: `id=eq.${dreamId}`,
       }, (payload) => {
-        setStatus((payload.new as { status: DreamStatus }).status);
+        const newStatus = (payload.new as Record<string, unknown>).status;
+        if (typeof newStatus === 'string') setStatus(newStatus as DreamStatus);
       })
       .subscribe();
 
