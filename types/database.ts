@@ -20,13 +20,25 @@ export interface Database {
           id: string;
           email: string;
           created_at?: string;
-          preferences?: Json | null;
+          preferences?: {
+            wake_window_start: string | null;
+            wake_window_end: string | null;
+            wake_word_enabled: boolean;
+            watch_paired: boolean;
+            default_comic_style: string;
+          } | null;
         };
         Update: {
           id?: string;
           email?: string;
           created_at?: string;
-          preferences?: Json | null;
+          preferences?: {
+            wake_window_start: string | null;
+            wake_window_end: string | null;
+            wake_word_enabled: boolean;
+            watch_paired: boolean;
+            default_comic_style: string;
+          } | null;
         };
       };
       dreams: {
