@@ -28,9 +28,23 @@ serve(async (req) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
+  // Verify caller owns the dream before generating (service role bypasses RLS)
+  const authHeader = req.headers.get('authorization') ?? '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+
   const { data: dream } = await supabase.from('dreams').select('comic_style, user_id, export_url').eq('id', dream_id).single();
   if (!dream) return new Response(JSON.stringify({ error: 'Not found' }), {
     status: 404,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+
+  if (dream.user_id !== user.id) return new Response(JSON.stringify({ error: 'Forbidden' }), {
+    status: 403,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
@@ -77,7 +91,7 @@ serve(async (req) => {
     }
 
     ctx.fillStyle = FG[style] ?? '#000'; ctx.font = `${FONT}px sans-serif`; ctx.textAlign = 'left';
-    const words = scene.text_content.split(' ');
+    const words = (scene.text_content ?? '').split(' ');
     const lines: string[] = []; let line = '';
     for (const word of words) {
       const test = line ? `${line} ${word}` : word;

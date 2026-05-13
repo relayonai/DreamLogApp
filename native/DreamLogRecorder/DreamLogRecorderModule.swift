@@ -8,6 +8,7 @@ public class DreamLogRecorderModule: Module, WCSessionDelegate {
   private var audioRecorder: AVAudioRecorder?
   private var recordingURL: URL?
   private var liveActivity: AnyObject?  // Activity<RecordingAttributes>? — typed as AnyObject for iOS version compatibility
+  private var timerTask: Task<Void, Never>?
 
   public func definition() -> ModuleDefinition {
     Name("DreamLogRecorder")
@@ -42,9 +43,9 @@ public class DreamLogRecorderModule: Module, WCSessionDelegate {
           let content = ActivityContent(state: state, staleDate: nil)
           self.liveActivity = try? Activity<RecordingAttributes>.request(attributes: attrs, content: content)
 
-          Task {
+          self.timerTask = Task {
             var seconds = 0
-            while self.audioRecorder != nil {
+            while !Task.isCancelled && self.audioRecorder != nil {
               try? await Task.sleep(nanoseconds: 1_000_000_000)
               seconds += 1
               let newState = RecordingAttributes.ContentState(elapsedSeconds: seconds)
@@ -64,6 +65,7 @@ public class DreamLogRecorderModule: Module, WCSessionDelegate {
         promise.reject("NO_RECORDING", "No active recording"); return
       }
       recorder.stop(); self.audioRecorder = nil
+      self.timerTask?.cancel(); self.timerTask = nil
 
       if #available(iOS 16.2, *) {
         if let activity = self.liveActivity as? Activity<RecordingAttributes> {

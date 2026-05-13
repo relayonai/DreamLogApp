@@ -4,6 +4,7 @@ import { Slot, useRouter, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
 import { flushUploadQueue } from '../lib/storage';
+import { DreamLogRecorder } from '../native/DreamLogRecorder';
 import type { Session } from '@supabase/supabase-js';
 
 export default function RootLayout() {
@@ -39,7 +40,8 @@ export default function RootLayout() {
       if (url === 'dreamlog://record') {
         if (session) router.push('/(tabs)/home');
       } else if (url === 'dreamlog://stop') {
-        // Live Activity stop button: navigate to home where user can tap Stop
+        // Live Activity stop button: stop the native recording and navigate home
+        try { await DreamLogRecorder.stopRecording(); } catch {}
         if (session) router.push('/(tabs)/home');
       } else if (url.startsWith('dreamlog://')) {
         await supabase.auth.exchangeCodeForSession(url);
