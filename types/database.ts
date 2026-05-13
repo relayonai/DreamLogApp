@@ -40,6 +40,7 @@ export interface Database {
             default_comic_style: 'classic' | 'graphic_novel' | 'manga' | 'surreal';
           } | null;
         };
+        Relationships: [];
       };
       dreams: {
         Row: {
@@ -84,6 +85,7 @@ export interface Database {
           export_url?: string | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       scenes: {
         Row: {
@@ -116,6 +118,15 @@ export interface Database {
           tone_applied?: string | null;
           created_at?: string;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'scenes_dream_id_fkey';
+            columns: ['dream_id'];
+            isOneToOne: false;
+            referencedRelation: 'dreams';
+            referencedColumns: ['id'];
+          }
+        ];
       };
       gap_suggestions: {
         Row: {
@@ -142,7 +153,18 @@ export interface Database {
           tone?: string;
           accepted?: boolean | null;
         };
+        Relationships: [
+          {
+            foreignKeyName: 'gap_suggestions_scene_id_fkey';
+            columns: ['scene_id'];
+            isOneToOne: false;
+            referencedRelation: 'scenes';
+            referencedColumns: ['id'];
+          }
+        ];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }
