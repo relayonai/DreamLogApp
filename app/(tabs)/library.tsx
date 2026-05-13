@@ -7,11 +7,13 @@ import { CalendarView } from '../../components/library/CalendarView';
 import type { Database } from '../../types/database';
 
 type LibraryView = 'calendar' | 'feed' | 'grid';
-type Dream = Database['public']['Tables']['dreams']['Row'];
+type DreamWithScenes = Database['public']['Tables']['dreams']['Row'] & {
+  scenes?: Array<{ image_url: string | null }>;
+};
 
 export default function LibraryScreen() {
   const [view, setView] = useState<LibraryView>('feed');
-  const [dreams, setDreams] = useState<Dream[]>([]);
+  const [dreams, setDreams] = useState<DreamWithScenes[]>([]);
 
   useEffect(() => {
     supabase.from('dreams').select('*, scenes(image_url)').eq('status', 'ready')
@@ -30,7 +32,7 @@ export default function LibraryScreen() {
         ))}
       </View>
       {view === 'feed' && <FeedView dreams={dreams} />}
-      {view === 'grid' && <GridView dreams={dreams as any} />}
+      {view === 'grid' && <GridView dreams={dreams} />}
       {view === 'calendar' && <CalendarView dreams={dreams} />}
     </View>
   );

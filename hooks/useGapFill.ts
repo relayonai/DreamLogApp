@@ -26,16 +26,17 @@ export function useGapFill(sceneId: string, originalText: string) {
   async function acceptSuggestion(tone: Tone) {
     const s = suggestions[tone];
     if (!s) return;
-    await supabase.from('gap_suggestions').insert({
+    const { error: insertError } = await supabase.from('gap_suggestions').insert({
       scene_id: sceneId, original_text: originalText, suggested_text: s.text, tone, accepted: true,
     });
-    await supabase.from('scenes').update({ text_content: s.text, gap_filled: true, tone_applied: tone }).eq('id', sceneId);
-    setAccepted(tone);
+    if (insertError) return;
+    const { error: updateError } = await supabase.from('scenes').update({ text_content: s.text, gap_filled: true, tone_applied: tone }).eq('id', sceneId);
+    if (!updateError) setAccepted(tone);
   }
 
   async function restoreOriginal() {
-    await supabase.from('scenes').update({ text_content: originalText, gap_filled: false, tone_applied: null }).eq('id', sceneId);
-    setAccepted(null);
+    const { error } = await supabase.from('scenes').update({ text_content: originalText, gap_filled: false, tone_applied: null }).eq('id', sceneId);
+    if (!error) setAccepted(null);
   }
 
   return { suggestions, accepted, previewTone, acceptSuggestion, restoreOriginal };

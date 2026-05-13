@@ -20,8 +20,12 @@ export default function HomeScreen() {
   }, []);
 
   async function loadDreams() {
-    const data = await listDreams();
-    setDreams(data);
+    try {
+      const data = await listDreams();
+      setDreams(data);
+    } catch {
+      // silently fail — list stays empty
+    }
   }
 
   async function handleStop() {

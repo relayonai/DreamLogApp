@@ -33,19 +33,26 @@ serve(async (req) => {
 
   const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 300,
-    messages: [{
-      role: 'user',
-      content: `Fill a gap in someone's dream narrative using a ${tone} tone.
+  let text: string;
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,
+      messages: [{
+        role: 'user',
+        content: `Fill a gap in someone's dream narrative using a ${tone} tone.
 Original text: "${original_text}"
 Rules: keep same person and setting, only expand (do not contradict), ${TONE_INSTRUCTIONS[tone] ?? ''}
 Write 2–4 sentences. Return ONLY the filled text — no preamble.`,
-    }],
-  });
-
-  const text = message.content[0].type === 'text' ? message.content[0].text : original_text;
+      }],
+    });
+    text = message.content[0].type === 'text' ? message.content[0].text : original_text;
+  } catch {
+    return new Response(JSON.stringify({ error: 'AI generation failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
   return new Response(JSON.stringify({ text }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });

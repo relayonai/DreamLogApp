@@ -5,6 +5,10 @@ import { supabase } from '../../lib/supabase';
 import type { Database } from '../../types/database';
 import { DreamLogRecorder } from '../../native/DreamLogRecorder';
 
+type UserPreferences = NonNullable<Database['public']['Tables']['users']['Row']['preferences']>;
+
+const STYLES = ['classic', 'graphic_novel', 'manga', 'surreal'] as const;
+
 export default function SettingsScreen() {
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const [watchPaired, setWatchPaired] = useState(false);
@@ -26,19 +30,18 @@ export default function SettingsScreen() {
     load();
   }, []);
 
-  async function savePreferences(updates: Record<string, unknown>) {
+  async function savePreferences(updates: Partial<UserPreferences>) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const { data } = await supabase.from('users').select('preferences').eq('id', user.id).single();
-    await supabase.from('users').update({ preferences: { ...(data?.preferences ?? {}), ...updates } as Database['public']['Tables']['users']['Row']['preferences'] }).eq('id', user.id);
+    const merged = { ...(data?.preferences ?? {}), ...updates } as UserPreferences;
+    await supabase.from('users').update({ preferences: merged }).eq('id', user.id);
   }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
     router.replace('/(auth)/login');
   }
-
-  const STYLES = ['classic', 'graphic_novel', 'manga', 'surreal'];
 
   return (
     <View style={styles.container}>
@@ -49,7 +52,7 @@ export default function SettingsScreen() {
           <Text style={styles.label}>Wake Word</Text>
           <Text style={styles.sub}>"Hey DreamLog" — on-device, no cloud</Text>
         </View>
-        <Switch value={wakeWordEnabled} onValueChange={v => { setWakeWordEnabled(v); savePreferences({ wake_word_enabled: v }); }} />
+        <Switch value={wakeWordEnabled} onValueChange={async v => { setWakeWordEnabled(v); await savePreferences({ wake_word_enabled: v }); }} />
       </View>
 
       <View style={styles.row}>
@@ -57,7 +60,7 @@ export default function SettingsScreen() {
           <Text style={styles.label}>Apple Watch</Text>
           <Text style={styles.sub}>REM-exit detection via HRV</Text>
         </View>
-        <Switch value={watchPaired} onValueChange={v => { setWatchPaired(v); savePreferences({ watch_paired: v }); }} />
+        <Switch value={watchPaired} onValueChange={async v => { setWatchPaired(v); await savePreferences({ watch_paired: v }); }} />
       </View>
 
       <View style={styles.row}>

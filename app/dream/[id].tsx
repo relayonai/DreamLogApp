@@ -11,6 +11,7 @@ type Scene = Database['public']['Tables']['scenes']['Row'];
 
 export default function DreamScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const dreamId = typeof id === 'string' ? id : Array.isArray(id) ? id[0] : null;
   const [dream, setDream] = useState<Dream | null>(null);
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,13 +20,19 @@ export default function DreamScreen() {
   const router = useRouter();
 
   useEffect(() => {
+    if (!dreamId) { setLoading(false); return; }
+    const resolvedId: string = dreamId;
     async function load() {
-      const { data: d } = await supabase.from('dreams').select('*').eq('id', id).single();
-      const { data: s } = await supabase.from('scenes').select('*').eq('dream_id', id).order('order_index');
-      setDream(d); setScenes(s ?? []); setLoading(false);
+      try {
+        const { data: d } = await supabase.from('dreams').select('*').eq('id', resolvedId).single();
+        const { data: s } = await supabase.from('scenes').select('*').eq('dream_id', resolvedId).order('order_index');
+        setDream(d); setScenes(s ?? []);
+      } finally {
+        setLoading(false);
+      }
     }
     load();
-  }, [id]);
+  }, [dreamId]);
 
   async function handleExport() {
     if (!dream) return;
@@ -42,6 +49,7 @@ export default function DreamScreen() {
   }
 
   if (loading) return <View style={styles.center}><ActivityIndicator color="#6c63ff" /></View>;
+  if (!loading && !dreamId) return <View style={styles.center}><Text style={{ color: '#fff' }}>Invalid dream ID</Text></View>;
   if (!dream) return <View style={styles.center}><Text style={{ color: '#fff' }}>Dream not found</Text></View>;
 
   if (dream.status === 'failed' && !dream.transcription_raw) {
@@ -64,14 +72,18 @@ export default function DreamScreen() {
             onChangeText={setManualText}
           />
           <TouchableOpacity style={styles.manualBtn} onPress={async () => {
-            if (!manualText.trim()) return;
-            await supabase.from('dreams').update({
-              transcription_raw: manualText,
-              transcription_enhanced: manualText,
-              status: 'processing',
-            }).eq('id', id);
-            await supabase.functions.invoke('analyse-gaps', { body: { dream_id: id } });
-            router.replace(`/dream/${id}`);
+            if (!manualText.trim() || !dreamId) return;
+            try {
+              await supabase.from('dreams').update({
+                transcription_raw: manualText,
+                transcription_enhanced: manualText,
+                status: 'processing',
+              }).eq('id', dreamId);
+              await supabase.functions.invoke('analyse-gaps', { body: { dream_id: dreamId } });
+              router.replace(`/dream/${dreamId}`);
+            } catch {
+              // silently fail — user stays on screen
+            }
           }}>
             <Text style={styles.manualBtnText}>Illustrate this dream →</Text>
           </TouchableOpacity>
@@ -88,7 +100,7 @@ export default function DreamScreen() {
         </TouchableOpacity>
         <Text style={styles.styleLabel}>{COMIC_STYLE_LABELS[dream.comic_style ?? 'classic']}</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity onPress={() => router.push(`/dream/shape/${id}`)}>
+          <TouchableOpacity onPress={() => router.push(`/dream/shape/${dreamId}`)}>
             <Text style={styles.shape}>Shape ✦</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={handleExport} disabled={exporting} style={styles.exportBtn}>

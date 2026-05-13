@@ -51,20 +51,23 @@ const COMIC_STYLES = ['classic', 'graphic_novel', 'manga', 'surreal'];
 
 export default function ShapeYourDreamScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const dreamId = typeof id === 'string' ? id : Array.isArray(id) ? id[0] : null;
   const [gapScenes, setGapScenes] = useState<Scene[]>([]);
   const [comicStyle, setComicStyle] = useState('classic');
   const router = useRouter();
 
   useEffect(() => {
-    supabase.from('scenes').select('*').eq('dream_id', id).eq('gap_filled', true).order('order_index')
+    if (!dreamId) return;
+    supabase.from('scenes').select('*').eq('dream_id', dreamId).eq('gap_filled', true).order('order_index')
       .then(({ data }) => setGapScenes(data ?? []));
-    supabase.from('dreams').select('comic_style').eq('id', id).single()
+    supabase.from('dreams').select('comic_style').eq('id', dreamId).single()
       .then(({ data }) => { if (data?.comic_style) setComicStyle(data.comic_style); });
-  }, [id]);
+  }, [dreamId]);
 
   async function handleStyleChange(s: string) {
+    if (!dreamId) return;
     setComicStyle(s);
-    await supabase.from('dreams').update({ comic_style: s as 'classic' | 'graphic_novel' | 'manga' | 'surreal' }).eq('id', id);
+    await supabase.from('dreams').update({ comic_style: s as 'classic' | 'graphic_novel' | 'manga' | 'surreal' }).eq('id', dreamId);
   }
 
   return (
