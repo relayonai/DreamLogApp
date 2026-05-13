@@ -1,12 +1,32 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 serve(async (req) => {
-  const { dream_id } = await req.json();
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  let dream_id: string;
+  try {
+    const body = await req.json();
+    dream_id = body.dream_id;
+    if (!dream_id) throw new Error('missing dream_id');
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
   const { data: dream } = await supabase.from('dreams').select('audio_url').eq('id', dream_id).single();
-  if (!dream?.audio_url) return new Response(JSON.stringify({ error: 'No audio' }), { status: 404 });
+  if (!dream?.audio_url) return new Response(JSON.stringify({ error: 'No audio' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
   const audioBlob = await (await fetch(dream.audio_url)).blob();
   const formData = new FormData();
@@ -22,7 +42,7 @@ serve(async (req) => {
 
   if (!whisperData.text) {
     await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
-    return new Response(JSON.stringify({ error: 'Transcription failed' }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Transcription failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
 
   // Confidence: average no_speech_prob across segments. Threshold 0.4 — calibrate during testing.
@@ -38,6 +58,10 @@ serve(async (req) => {
     status: 'processing',
   }).eq('id', dream_id);
 
-  await supabase.functions.invoke('analyse-gaps', { body: { dream_id } });
-  return new Response(JSON.stringify({ ok: true }));
+  const { error: invokeErr } = await supabase.functions.invoke('analyse-gaps', { body: { dream_id } });
+  if (invokeErr) {
+    await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
+    return new Response(JSON.stringify({ error: 'Pipeline handoff failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+  }
+  return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });

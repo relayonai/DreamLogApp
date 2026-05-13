@@ -2,15 +2,36 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import Anthropic from 'https://esm.sh/@anthropic-ai/sdk@0.24.0';
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 serve(async (req) => {
-  const { dream_id, gaps } = await req.json();
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  let dream_id: string, gaps: unknown[];
+  try {
+    const body = await req.json();
+    dream_id = body.dream_id;
+    gaps = body.gaps ?? [];
+    if (!dream_id) throw new Error('missing dream_id');
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
+
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') });
 
   const { data: dream } = await supabase.from('dreams').select('transcription_raw').eq('id', dream_id).single();
-  if (!dream?.transcription_raw) return new Response(JSON.stringify({ error: 'No transcription' }), { status: 404 });
+  if (!dream?.transcription_raw) return new Response(JSON.stringify({ error: 'No transcription' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
-  const gapTexts = (gaps ?? []).map((g: { section_text: string }) => g.section_text);
+  const gapTexts = (gaps ?? []).map((g: unknown) => (g as { section_text: string }).section_text);
 
   const message = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -47,16 +68,23 @@ Return ONLY the JSON array — no preamble.`,
     scenes = [{ order_index: 0, text_content: dream.transcription_raw, gap_filled: false, tone_applied: null }];
   }
 
+  // Dedup guard: delete existing scenes before insert in case of retry
+  await supabase.from('scenes').delete().eq('dream_id', dream_id);
+
   const { data: insertedScenes, error } = await supabase
     .from('scenes').insert(scenes.map(s => ({ ...s, dream_id }))).select();
 
   if (error) {
     await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
-    return new Response(JSON.stringify({ error: 'Scene insert failed' }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Scene insert failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
 
-  await supabase.functions.invoke('generate-panels', {
+  const { error: invokeErr } = await supabase.functions.invoke('generate-panels', {
     body: { dream_id, scene_ids: insertedScenes?.map(s => s.id) ?? [] },
   });
-  return new Response(JSON.stringify({ ok: true, scene_count: scenes.length }));
+  if (invokeErr) {
+    await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
+    return new Response(JSON.stringify({ error: 'Pipeline handoff failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+  }
+  return new Response(JSON.stringify({ ok: true, scene_count: scenes.length }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });
