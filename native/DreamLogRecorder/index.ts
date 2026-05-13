@@ -1,7 +1,11 @@
-// Stub — full implementation in Task 11 (Swift native module)
+import { NativeModulesProxy } from 'expo-modules-core';
+
+const Mod = NativeModulesProxy.DreamLogRecorder;
+
 export const DreamLogRecorder = {
-  startRecording: (): Promise<string> => Promise.resolve(''),
-  stopRecording: (): Promise<string> => Promise.resolve(''),
-  scheduleWakeWindow: (_startHour: number, _startMinute: number): Promise<void> => Promise.resolve(),
-  cancelWakeWindow: (): Promise<void> => Promise.resolve(),
+  startRecording: (): Promise<string> => Mod.startRecording(),
+  stopRecording: (): Promise<string> => Mod.stopRecording(),
+  scheduleWakeWindow: (startHour: number, startMinute: number): Promise<void> =>
+    Mod.scheduleWakeWindow(startHour, startMinute),
+  cancelWakeWindow: (): Promise<void> => Mod.cancelWakeWindow(),
 };
