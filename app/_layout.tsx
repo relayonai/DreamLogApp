@@ -38,6 +38,9 @@ export default function RootLayout() {
     const linkSub = Linking.addEventListener('url', async ({ url }: { url: string }) => {
       if (url === 'dreamlog://record') {
         if (session) router.push('/(tabs)/home');
+      } else if (url === 'dreamlog://stop') {
+        // Live Activity stop button: navigate to home where user can tap Stop
+        if (session) router.push('/(tabs)/home');
       } else if (url.startsWith('dreamlog://')) {
         await supabase.auth.exchangeCodeForSession(url);
       }

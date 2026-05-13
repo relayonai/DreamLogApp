@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import AVFoundation
+import ActivityKit
 import UserNotifications
 import WatchConnectivity
 
