@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, Switch, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Switch, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import type { Database } from '../../types/database';
@@ -9,14 +9,20 @@ type UserInsert = Database['public']['Tables']['users']['Insert'];
 export default function OnboardingScreen() {
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const [watchPaired, setWatchPaired] = useState(false);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   async function handleFinish() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    setLoading(true);
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user || !user.email) {
+      Alert.alert('Error', 'Session expired. Please log in again.');
+      setLoading(false);
+      return;
+    }
     const upsertData: UserInsert = {
       id: user.id,
-      email: user.email!,
+      email: user.email,
       preferences: {
         wake_word_enabled: wakeWordEnabled,
         watch_paired: watchPaired,
@@ -26,7 +32,12 @@ export default function OnboardingScreen() {
       },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from('users') as any).upsert(upsertData);
+    const { error } = await (supabase.from('users') as any).upsert(upsertData);
+    if (error) {
+      Alert.alert('Error', 'Could not save preferences. Please try again.');
+      setLoading(false);
+      return;
+    }
     router.replace('/(tabs)/home');
   }
 
@@ -52,8 +63,8 @@ export default function OnboardingScreen() {
 
       <Text style={styles.note}>You can set a Smart Alarm Window in Settings anytime.</Text>
 
-      <TouchableOpacity style={styles.button} onPress={handleFinish}>
-        <Text style={styles.buttonText}>Start capturing dreams →</Text>
+      <TouchableOpacity style={styles.button} onPress={handleFinish} disabled={loading}>
+        <Text style={styles.buttonText}>{loading ? 'Saving…' : 'Start capturing dreams →'}</Text>
       </TouchableOpacity>
     </View>
   );
