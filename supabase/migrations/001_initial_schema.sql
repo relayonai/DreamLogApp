@@ -54,16 +54,45 @@ ALTER TABLE gap_suggestions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "users: own row" ON users FOR ALL USING (auth.uid() = id);
 CREATE POLICY "dreams: own rows" ON dreams FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "scenes: via dreams" ON scenes FOR ALL USING (
-  EXISTS (SELECT 1 FROM dreams WHERE dreams.id = scenes.dream_id AND dreams.user_id = auth.uid())
-);
-CREATE POLICY "gap_suggestions: via scenes" ON gap_suggestions FOR ALL USING (
-  EXISTS (
-    SELECT 1 FROM scenes
-    JOIN dreams ON dreams.id = scenes.dream_id
-    WHERE scenes.id = gap_suggestions.scene_id AND dreams.user_id = auth.uid()
+CREATE POLICY "scenes: via dreams" ON scenes FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM dreams WHERE dreams.id = scenes.dream_id AND dreams.user_id = auth.uid())
   )
-);
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM dreams WHERE dreams.id = scenes.dream_id AND dreams.user_id = auth.uid())
+  );
+CREATE POLICY "gap_suggestions: via scenes" ON gap_suggestions FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM scenes
+      JOIN dreams ON dreams.id = scenes.dream_id
+      WHERE scenes.id = gap_suggestions.scene_id AND dreams.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM scenes
+      JOIN dreams ON dreams.id = scenes.dream_id
+      WHERE scenes.id = gap_suggestions.scene_id AND dreams.user_id = auth.uid()
+    )
+  );
+
+CREATE INDEX ON dreams (user_id);
+CREATE INDEX ON scenes (dream_id);
+CREATE INDEX ON gap_suggestions (scene_id);
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  INSERT INTO public.users (id, email)
+  VALUES (NEW.id, NEW.email);
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 -- Storage bucket policies (create buckets audio, images, exports in Supabase dashboard first)
 CREATE POLICY "audio: user owns" ON storage.objects FOR ALL

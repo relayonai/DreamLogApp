@@ -13,7 +13,7 @@ export interface Database {
             wake_window_end: string | null;
             wake_word_enabled: boolean;
             watch_paired: boolean;
-            default_comic_style: string;
+            default_comic_style: 'classic' | 'graphic_novel' | 'manga' | 'surreal';
           } | null;
         };
         Insert: {
@@ -25,7 +25,7 @@ export interface Database {
             wake_window_end: string | null;
             wake_word_enabled: boolean;
             watch_paired: boolean;
-            default_comic_style: string;
+            default_comic_style: 'classic' | 'graphic_novel' | 'manga' | 'surreal';
           } | null;
         };
         Update: {
@@ -37,7 +37,7 @@ export interface Database {
             wake_window_end: string | null;
             wake_word_enabled: boolean;
             watch_paired: boolean;
-            default_comic_style: string;
+            default_comic_style: 'classic' | 'graphic_novel' | 'manga' | 'surreal';
           } | null;
         };
       };

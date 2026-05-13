@@ -3,6 +3,8 @@
     "name": "dreamlog",
     "slug": "dreamlog",
     "version": "1.0.0",
+    "scheme": "dreamlog",
+    "plugins": ["expo-router"],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
