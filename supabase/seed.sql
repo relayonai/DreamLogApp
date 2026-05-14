@@ -1,0 +1,2 @@
+-- Seed data for local development (supabase db reset)
+-- No seed data required for DreamLog v1 — all content is user-generated.
