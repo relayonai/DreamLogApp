@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { createCanvas, loadImage } from 'https://esm.sh/@napi-rs/canvas@0.1.44';
+import { Resvg, initWasm } from 'https://esm.sh/@resvg/resvg-wasm@2.4.1';
+import resvgWasm from 'https://esm.sh/@resvg/resvg-wasm@2.4.1/resvgjs_bg.wasm?module';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,6 +11,70 @@ const corsHeaders = {
 const PANEL_W = 1024, CAPTION_H = 160, PANEL_H = PANEL_W + CAPTION_H, PAD = 16, FONT = 22;
 const BG: Record<string, string> = { classic: '#ffffff', graphic_novel: '#111111', manga: '#ffffff', surreal: '#1a0a2e' };
 const FG: Record<string, string> = { classic: '#000000', graphic_novel: '#eeeeee', manga: '#000000', surreal: '#e0d0ff' };
+const BORDER_STYLES = new Set(['classic', 'manga']);
+
+let wasmInitialized = false;
+
+function wrapText(text: string, maxChars: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (test.length > maxChars) { if (line) lines.push(line); line = word; } else { line = test; }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 3);
+}
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildSvg(scenes: Array<{ image_url: string | null; text_content: string | null; gap_filled: boolean | null; order_index: number }>, style: string): string {
+  const bg = BG[style] ?? '#fff';
+  const fg = FG[style] ?? '#000';
+  const totalH = scenes.length * (PANEL_H + PAD) + PAD;
+  const hasBorder = BORDER_STYLES.has(style);
+
+  const panelSvgs = scenes.map((scene, i) => {
+    const y = i * (PANEL_H + PAD) + PAD;
+    const capY = y + PANEL_W;
+    const text = scene.text_content ?? '';
+    const lines = wrapText(text, 52);
+
+    const imageEl = scene.image_url
+      ? `<image href="${escapeXml(scene.image_url)}" x="0" y="${y}" width="${PANEL_W}" height="${PANEL_W}" preserveAspectRatio="xMidYMid slice"/>`
+      : `<rect x="0" y="${y}" width="${PANEL_W}" height="${PANEL_W}" fill="#2a2a3e"/>
+         <text x="${PANEL_W / 2}" y="${y + PANEL_W / 2 + 16}" font-size="48" text-anchor="middle" fill="${fg}" font-family="sans-serif">✦</text>`;
+
+    const aiTag = scene.gap_filled
+      ? `<text x="${PAD}" y="${capY + PAD + FONT - 6}" font-size="${FONT - 6}" font-weight="bold" fill="#6c63ff" font-family="sans-serif">✦ AI enhanced</text>`
+      : '';
+    const textOffsetY = scene.gap_filled ? FONT : 0;
+
+    const textLines = lines.map((l, li) =>
+      `<text x="${PAD}" y="${capY + PAD + FONT + textOffsetY + li * (FONT + 6)}" font-size="${FONT}" fill="${escapeXml(fg)}" font-family="sans-serif">${escapeXml(l)}</text>`
+    ).join('\n');
+
+    const border = hasBorder
+      ? `<rect x="0" y="${y}" width="${PANEL_W}" height="${PANEL_H}" fill="none" stroke="#000" stroke-width="3"/>`
+      : '';
+
+    return `
+      ${imageEl}
+      <rect x="0" y="${capY}" width="${PANEL_W}" height="${CAPTION_H}" fill="${escapeXml(bg)}"/>
+      ${aiTag}
+      ${textLines}
+      ${border}
+    `;
+  }).join('\n');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${PANEL_W}" height="${totalH}">
+    <rect width="${PANEL_W}" height="${totalH}" fill="${escapeXml(bg)}"/>
+    ${panelSvgs}
+  </svg>`;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -28,7 +93,6 @@ serve(async (req) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-  // Verify caller owns the dream before generating (service role bypasses RLS)
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
@@ -48,7 +112,6 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
-  // Spec: pre-rendered and cached — return instantly if already generated
   if (dream.export_url) return new Response(JSON.stringify({ export_url: dream.export_url }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
@@ -59,53 +122,16 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
-  const style = dream.comic_style ?? 'classic';
-  const canvas = createCanvas(PANEL_W, scenes.length * (PANEL_H + PAD) + PAD);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = BG[style] ?? '#fff';
-  ctx.fillRect(0, 0, PANEL_W, canvas.height);
-
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
-    const y = i * (PANEL_H + PAD) + PAD;
-
-    if (scene.image_url) {
-      try { ctx.drawImage(await loadImage(scene.image_url), 0, y, PANEL_W, PANEL_W); }
-      catch {
-        ctx.fillStyle = '#2a2a3e'; ctx.fillRect(0, y, PANEL_W, PANEL_W);
-        ctx.fillStyle = FG[style] ?? '#000'; ctx.font = '48px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText('✦', PANEL_W / 2, y + PANEL_W / 2 + 16);
-      }
-    } else {
-      ctx.fillStyle = '#2a2a3e'; ctx.fillRect(0, y, PANEL_W, PANEL_W);
-    }
-
-    const capY = y + PANEL_W;
-    ctx.fillStyle = BG[style] ?? '#fff'; ctx.fillRect(0, capY, PANEL_W, CAPTION_H);
-    let textY = capY + PAD + FONT;
-
-    if (scene.gap_filled) {
-      ctx.fillStyle = '#6c63ff'; ctx.font = `bold ${FONT - 6}px sans-serif`; ctx.textAlign = 'left';
-      ctx.fillText('✦ AI enhanced', PAD, capY + PAD + FONT - 6);
-      textY += FONT;
-    }
-
-    ctx.fillStyle = FG[style] ?? '#000'; ctx.font = `${FONT}px sans-serif`; ctx.textAlign = 'left';
-    const words = (scene.text_content ?? '').split(' ');
-    const lines: string[] = []; let line = '';
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > PANEL_W - PAD * 2) { if (line) lines.push(line); line = word; } else { line = test; }
-    }
-    if (line) lines.push(line);
-    lines.slice(0, 3).forEach((l, li) => ctx.fillText(l, PAD, textY + li * (FONT + 6)));
-
-    if (style === 'classic' || style === 'manga') {
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(0, y, PANEL_W, PANEL_H);
-    }
+  if (!wasmInitialized) {
+    await initWasm(resvgWasm);
+    wasmInitialized = true;
   }
 
-  const pngBuffer = canvas.toBuffer('image/png');
+  const svg = buildSvg(scenes, dream.comic_style ?? 'classic');
+  const resvg = new Resvg(svg, { font: { loadSystemFonts: false } });
+  const pngData = resvg.render();
+  const pngBuffer = pngData.asPng();
+
   const remotePath = `${dream.user_id}/${dream_id}/export.png`;
   const { error: uploadError } = await supabase.storage.from('exports').upload(remotePath, pngBuffer, { contentType: 'image/png', upsert: true });
   if (uploadError) return new Response(JSON.stringify({ error: 'Upload failed' }), {
