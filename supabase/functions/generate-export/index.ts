@@ -41,7 +41,8 @@ function buildSvg(scenes: Array<{ image_url: string | null; text_content: string
     const y = i * (PANEL_H + PAD) + PAD;
     const capY = y + PANEL_W;
     const text = scene.text_content ?? '';
-    const lines = wrapText(text, 52);
+    // ~13px avg char width × 65 ≈ 845px, within the 992px (PANEL_W - 2×PAD) line budget
+    const lines = wrapText(text, 65);
 
     const imageEl = scene.image_url
       ? `<image href="${escapeXml(scene.image_url)}" x="0" y="${y}" width="${PANEL_W}" height="${PANEL_W}" preserveAspectRatio="xMidYMid slice"/>`
@@ -93,6 +94,7 @@ serve(async (req) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
+  // Verify caller owns the dream before generating (service role bypasses RLS)
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
@@ -112,6 +114,7 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
+  // Spec: pre-rendered and cached — return instantly if already generated
   if (dream.export_url) return new Response(JSON.stringify({ export_url: dream.export_url }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
@@ -122,15 +125,34 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 
+  // wasmInitialized guards the per_worker local dev policy; in production each isolate
+  // is cold-started, so this is effectively always false — harmless but not a warm-module win.
   if (!wasmInitialized) {
     await initWasm(resvgWasm);
     wasmInitialized = true;
   }
 
-  const svg = buildSvg(scenes, dream.comic_style ?? 'classic');
-  const resvg = new Resvg(svg, { font: { loadSystemFonts: false } });
-  const pngData = resvg.render();
-  const pngBuffer = pngData.asPng();
+  let pngBuffer: Uint8Array;
+  try {
+    const svg = buildSvg(scenes, dream.comic_style ?? 'classic');
+    const resvg = new Resvg(svg, { font: { loadSystemFonts: false } });
+
+    // resvg-wasm is synchronous and makes no network requests — pre-fetch panel images
+    const hrefs = resvg.imagesToResolve();
+    await Promise.all(hrefs.map(async (href) => {
+      try {
+        const res = await fetch(href);
+        if (res.ok) resvg.resolveImage(href, new Uint8Array(await res.arrayBuffer()));
+      } catch { /* leave panel blank — same fallback as original canvas approach */ }
+    }));
+
+    pngBuffer = resvg.render().asPng();
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Render failed', detail: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+  }
 
   const remotePath = `${dream.user_id}/${dream_id}/export.png`;
   const { error: uploadError } = await supabase.storage.from('exports').upload(remotePath, pngBuffer, { contentType: 'image/png', upsert: true });

@@ -27,7 +27,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.dreamlog"
+      "package": "com.relayonai.dreamlog"
     },
     "web": {
       "favicon": "./assets/favicon.png"
