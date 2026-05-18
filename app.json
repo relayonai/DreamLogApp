@@ -18,7 +18,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.relayonai.dreamlog"
+      "bundleIdentifier": "com.relayonai.dreamlog",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to recognize the wake word so you can start recording hands-free",
+        "NSMotionUsageDescription": "Allow $(PRODUCT_NAME) to use motion data to detect when you wake from REM sleep"
+      }
     },
     "android": {
       "adaptiveIcon": {

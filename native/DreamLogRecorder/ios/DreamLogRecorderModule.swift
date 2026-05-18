@@ -4,18 +4,30 @@ import ActivityKit
 import UserNotifications
 import WatchConnectivity
 
-public class DreamLogRecorderModule: Module, WCSessionDelegate {
+private class WatchSessionRelay: NSObject, WCSessionDelegate {
+  func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    if message["event"] as? String == "rem_exit" {
+      NotificationCenter.default.post(name: NSNotification.Name("REMExitDetected"), object: nil)
+    }
+  }
+  func sessionDidBecomeInactive(_ session: WCSession) {}
+  func sessionDidDeactivate(_ session: WCSession) { WCSession.default.activate() }
+  func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+}
+
+public class DreamLogRecorderModule: Module {
   private var audioRecorder: AVAudioRecorder?
   private var recordingURL: URL?
-  private var liveActivity: AnyObject?  // Activity<RecordingAttributes>? — typed as AnyObject for iOS version compatibility
+  private var liveActivity: AnyObject?
   private var timerTask: Task<Void, Never>?
+  private let watchRelay = WatchSessionRelay()
 
   public func definition() -> ModuleDefinition {
     Name("DreamLogRecorder")
 
     OnCreate {
       if WCSession.isSupported() {
-        WCSession.default.delegate = self
+        WCSession.default.delegate = self.watchRelay
         WCSession.default.activate()
       }
     }
@@ -102,13 +114,4 @@ public class DreamLogRecorderModule: Module, WCSessionDelegate {
       promise.resolve(nil)
     }
   }
-
-  public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-    if message["event"] as? String == "rem_exit" {
-      NotificationCenter.default.post(name: NSNotification.Name("REMExitDetected"), object: nil)
-    }
-  }
-  public func sessionDidBecomeInactive(_ session: WCSession) {}
-  public func sessionDidDeactivate(_ session: WCSession) { WCSession.default.activate() }
-  public func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
 }

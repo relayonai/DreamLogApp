@@ -1,0 +1,7 @@
+{
+  "name": "dream-log-recorder",
+  "version": "1.0.0",
+  "description": "DreamLog native module: recording, Live Activity, wake word, smart alarm",
+  "main": "index.ts",
+  "private": true
+}

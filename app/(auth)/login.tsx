@@ -9,7 +9,10 @@ export default function LoginScreen() {
   async function handleMagicLink() {
     if (!email.trim()) return;
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim() });
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: 'dreamlog://' },
+    });
     setLoading(false);
     if (error) Alert.alert('Error', error.message);
     else Alert.alert('Check your email', 'We sent you a magic link.');
