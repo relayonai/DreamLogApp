@@ -406,3 +406,21 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# Disable JWT verification on functions that are only invoked by other edge
+# functions (not directly by clients). Required because the new Supabase API
+# key system makes SUPABASE_SERVICE_ROLE_KEY a non-JWT, which the gateway
+# rejects when used as the Authorization header for /functions/v1/* calls.
+# These functions remain protected because they use the service-role client
+# internally and aren't reachable from the public app.
+[functions.analyse-gaps]
+verify_jwt = false
+
+[functions.split-scenes]
+verify_jwt = false
+
+[functions.generate-panels]
+verify_jwt = false
+
+[functions.generate-gap-fill]
+verify_jwt = false

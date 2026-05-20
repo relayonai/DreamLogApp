@@ -34,7 +34,7 @@ serve(async (req) => {
   const gapTexts = (gaps ?? []).map((g: unknown) => (g as { section_text: string }).section_text);
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     messages: [{
       role: 'user',
@@ -79,12 +79,18 @@ Return ONLY the JSON array — no preamble.`,
     return new Response(JSON.stringify({ error: 'Scene insert failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
 
-  const { error: invokeErr } = await supabase.functions.invoke('generate-panels', {
-    body: { dream_id, scene_ids: insertedScenes?.map(s => s.id) ?? [] },
+  const nextResp = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/generate-panels`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+    },
+    body: JSON.stringify({ dream_id, scene_ids: insertedScenes?.map(s => s.id) ?? [] }),
   });
-  if (invokeErr) {
+  if (!nextResp.ok) {
+    const errBody = await nextResp.text();
     await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
-    return new Response(JSON.stringify({ error: 'Pipeline handoff failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    return new Response(JSON.stringify({ error: `generate-panels handoff failed: ${nextResp.status} ${errBody.slice(0,200)}` }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
   return new Response(JSON.stringify({ ok: true, scene_count: scenes.length }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });

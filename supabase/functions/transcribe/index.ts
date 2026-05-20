@@ -25,10 +25,17 @@ serve(async (req) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-  const { data: dream } = await supabase.from('dreams').select('audio_url').eq('id', dream_id).single();
+  const { data: dream } = await supabase.from('dreams').select('audio_url, user_id').eq('id', dream_id).single();
   if (!dream?.audio_url) return new Response(JSON.stringify({ error: 'No audio' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
-  const audioBlob = await (await fetch(dream.audio_url)).blob();
+  // audio bucket is private — download via the service-role storage client
+  // (a plain fetch on the public URL returns 403 for private buckets).
+  const audioPath = `${dream.user_id}/${dream_id}.m4a`;
+  const { data: audioBlob, error: dlErr } = await supabase.storage.from('audio').download(audioPath);
+  if (dlErr || !audioBlob) {
+    await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
+    return new Response(JSON.stringify({ error: `audio download failed: ${dlErr?.message ?? 'no blob'}` }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+  }
   const formData = new FormData();
   formData.append('file', audioBlob, 'dream.m4a');
   formData.append('model', 'whisper-1');
@@ -58,10 +65,21 @@ serve(async (req) => {
     status: 'processing',
   }).eq('id', dream_id);
 
-  const { error: invokeErr } = await supabase.functions.invoke('analyse-gaps', { body: { dream_id } });
-  if (invokeErr) {
+  // Fire-and-forget the next pipeline step via direct fetch (more reliable than
+  // supabase.functions.invoke for edge-to-edge calls). We don't await the body —
+  // generate-panels can take 60s+ and we don't want to block this response.
+  const nextResp = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/analyse-gaps`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+    },
+    body: JSON.stringify({ dream_id }),
+  });
+  if (!nextResp.ok) {
+    const errBody = await nextResp.text();
     await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
-    return new Response(JSON.stringify({ error: 'Pipeline handoff failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    return new Response(JSON.stringify({ error: `analyse-gaps handoff failed: ${nextResp.status} ${errBody.slice(0,200)}` }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
   return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });

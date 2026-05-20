@@ -31,7 +31,7 @@ serve(async (req) => {
   if (!dream?.transcription_raw) return new Response(JSON.stringify({ error: 'No transcription' }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 1024,
     messages: [{
       role: 'user',
@@ -58,10 +58,18 @@ If no gaps, return []. Return ONLY the JSON array — no preamble.`,
     gaps = JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch { gaps = []; }
 
-  const { error: invokeErr } = await supabase.functions.invoke('split-scenes', { body: { dream_id, gaps } });
-  if (invokeErr) {
+  const nextResp = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/split-scenes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+    },
+    body: JSON.stringify({ dream_id, gaps }),
+  });
+  if (!nextResp.ok) {
+    const errBody = await nextResp.text();
     await supabase.from('dreams').update({ status: 'failed' }).eq('id', dream_id);
-    return new Response(JSON.stringify({ error: 'Pipeline handoff failed' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    return new Response(JSON.stringify({ error: `split-scenes handoff failed: ${nextResp.status} ${errBody.slice(0,200)}` }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
   }
   return new Response(JSON.stringify({ ok: true, gap_count: gaps.length }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });
