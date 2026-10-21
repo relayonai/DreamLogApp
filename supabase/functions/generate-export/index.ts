@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Resvg, initWasm } from 'https://esm.sh/@resvg/resvg-wasm@2.4.1';
 import resvgWasm from 'https://esm.sh/@resvg/resvg-wasm@2.4.1/resvgjs_bg.wasm?module';
+import { fetchWithRetry } from '../_shared/retry.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -141,8 +142,8 @@ serve(async (req) => {
     const hrefs = resvg.imagesToResolve();
     await Promise.all(hrefs.map(async (href) => {
       try {
-        const res = await fetch(href);
-        if (res.ok) resvg.resolveImage(href, new Uint8Array(await res.arrayBuffer()));
+        const res = await fetchWithRetry(href, { method: 'GET' }, { maxRetries: 2, baseDelayMs: 500 });
+        resvg.resolveImage(href, new Uint8Array(await res.arrayBuffer()));
       } catch { /* leave panel blank — same fallback as original canvas approach */ }
     }));
 
