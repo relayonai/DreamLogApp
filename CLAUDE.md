@@ -42,7 +42,9 @@ import { File, Directory, Paths } from 'expo-file-system/next';
 
 4 tables: `users`, `dreams`, `scenes`, `gap_suggestions`. All have RLS enabled.
 
-- `dreams.status`: `'pending' | 'processing' | 'ready' | 'failed'`
+- `dreams.status`: `'pending' | 'processing' | 'ready' | 'failed' | 'pending_sync'`
+- `dreams.pipeline_step`: tracks current pipeline stage (`'uploading' | 'transcribing' | 'analysing' | 'splitting' | 'generating' | 'done' | 'failed'`)
+- `dreams.failed_reason`: user-friendly failure message
 - `dreams.comic_style`: `'classic' | 'graphic_novel' | 'manga' | 'surreal'`
 - `dreams.transcription_raw`: immutable — pipeline never writes to it after transcribe
 - `dreams.export_url`: cached PNG strip URL — set once by generate-export
@@ -54,13 +56,13 @@ import { File, Directory, Paths } from 'expo-file-system/next';
 Audio upload → transcribe (Whisper) → analyse-gaps (Claude) → split-scenes (Claude) → generate-panels (DALL-E 3)
 ```
 
-Each step invokes the next via `supabase.functions.invoke`. All steps check `invokeErr` and mark dream `'failed'` on error. `generate-panels` tracks `successCount` — marks failed if all scenes fail.
+Each step invokes the next via fire-and-forget `fetch` (avoids timeout chain). Each step handles its own errors and marks dream `'failed'` with a `failed_reason`. `generate-panels` tracks `successCount` — marks failed if all scenes fail. All API calls use `fetchWithRetry` or `callClaudeWithRetry` with exponential backoff + jitter.
 
 ## Supabase Storage Buckets
 
-- `dreams` — audio files (`{user_id}/{dream_id}.m4a`)
-- `panels` — DALL-E images re-uploaded to avoid temp URL expiry
-- `exports` — PNG strips from generate-export (must be **public** bucket)
+- `audio` — audio files (`{user_id}/{dream_id}.m4a`), **private** bucket
+- `image` — DALL-E images re-uploaded to avoid temp URL expiry, **private** bucket (use signed URLs)
+- `exports` — PNG strips from generate-export, **public** bucket
 
 ## Manual Steps Required (Cannot Be Automated)
 
