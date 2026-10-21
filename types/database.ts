@@ -52,9 +52,11 @@ export interface Database {
           transcription_enhanced: string | null;
           comic_style: 'classic' | 'graphic_novel' | 'manga' | 'surreal' | null;
           mood_genre: string | null;
-          status: 'processing' | 'ready' | 'failed' | 'pending_sync';
+          status: 'pending' | 'processing' | 'ready' | 'failed' | 'pending_sync';
           low_confidence: boolean | null;
           export_url: string | null;
+          pipeline_step: string | null;
+          failed_reason: string | null;
           created_at: string;
         };
         Insert: {
@@ -66,9 +68,11 @@ export interface Database {
           transcription_enhanced?: string | null;
           comic_style?: 'classic' | 'graphic_novel' | 'manga' | 'surreal' | null;
           mood_genre?: string | null;
-          status?: 'processing' | 'ready' | 'failed' | 'pending_sync';
+          status?: 'pending' | 'processing' | 'ready' | 'failed' | 'pending_sync';
           low_confidence?: boolean | null;
           export_url?: string | null;
+          pipeline_step?: string | null;
+          failed_reason?: string | null;
           created_at?: string;
         };
         Update: {
@@ -80,9 +84,11 @@ export interface Database {
           transcription_enhanced?: string | null;
           comic_style?: 'classic' | 'graphic_novel' | 'manga' | 'surreal' | null;
           mood_genre?: string | null;
-          status?: 'processing' | 'ready' | 'failed' | 'pending_sync';
+          status?: 'pending' | 'processing' | 'ready' | 'failed' | 'pending_sync';
           low_confidence?: boolean | null;
           export_url?: string | null;
+          pipeline_step?: string | null;
+          failed_reason?: string | null;
           created_at?: string;
         };
         Relationships: [];
