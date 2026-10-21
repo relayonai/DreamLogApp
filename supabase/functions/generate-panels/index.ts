@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { fetchWithRetry } from '../_shared/retry.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,6 +34,8 @@ serve(async (req) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
+  await supabase.from('dreams').update({ pipeline_step: 'generating' }).eq('id', dream_id);
+
   const { data: dream } = await supabase.from('dreams').select('comic_style, user_id').eq('id', dream_id).single();
   const style = dream?.comic_style ?? 'classic';
   const stylePrompt = STYLE_PROMPTS[style] ?? STYLE_PROMPTS.classic;
@@ -43,7 +46,7 @@ serve(async (req) => {
 
   for (const scene of scenes ?? []) {
     try {
-      const dalleData = await (await fetch('https://api.openai.com/v1/images/generations', {
+      const dalleResp = await fetchWithRetry('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { Authorization: `Bearer ${Deno.env.get('OPENAI_API_KEY')}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,23 +54,46 @@ serve(async (req) => {
           prompt: `${stylePrompt}. Dream scene: ${scene.text_content.slice(0, 300)}`,
           n: 1, size: '1024x1024', response_format: 'url',
         }),
-      })).json();
+      });
+      const dalleData = await dalleResp.json();
 
-      const imageUrl = dalleData.data?.[0]?.url;
-      if (!imageUrl) continue; // Spec: leave image_url null → UI shows placeholder panel
+      if (dalleData.error) {
+        if (dalleData.error.code === 'content_policy_violation') {
+          console.warn(`Panel skipped (content policy) for scene ${scene.id}`);
+          continue;
+        }
+        console.error(`DALL-E error for scene ${scene.id}:`, dalleData.error);
+        continue;
+      }
 
-      const imgBuffer = await (await fetch(imageUrl)).arrayBuffer();
+      const tempImageUrl = dalleData.data?.[0]?.url;
+      if (!tempImageUrl) continue;
+
+      const imgResp = await fetchWithRetry(tempImageUrl, { method: 'GET' });
+      const imgBuffer = await imgResp.arrayBuffer();
+
       const remotePath = `${dream?.user_id}/${dream_id}/${scene.id}.png`;
-      await supabase.storage.from('images').upload(remotePath, imgBuffer, { contentType: 'image/png', upsert: true });
-      const { data: { publicUrl } } = supabase.storage.from('images').getPublicUrl(remotePath);
-      await supabase.from('scenes').update({ image_url: publicUrl }).eq('id', scene.id);
+      await supabase.storage.from('image').upload(remotePath, imgBuffer, { contentType: 'image/png', upsert: true });
+
+      const { data: signedUrlData } = await supabase.storage.from('image').createSignedUrl(remotePath, 60 * 60 * 24 * 365);
+      if (signedUrlData?.signedUrl) {
+        await supabase.from('scenes').update({ image_url: signedUrlData.signedUrl }).eq('id', scene.id);
+      }
       successCount++;
-    } catch {
-      // Spec: partial failure → continue, rest of comic renders normally
+    } catch (err) {
+      console.error('Panel generation failed for scene', scene.id, err);
     }
   }
 
   const finalStatus = successCount > 0 || (scenes ?? []).length === 0 ? 'ready' : 'failed';
-  await supabase.from('dreams').update({ status: finalStatus }).eq('id', dream_id);
-  return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+  const update: Record<string, unknown> = {
+    status: finalStatus,
+    pipeline_step: finalStatus === 'ready' ? 'done' : 'failed',
+  };
+  if (finalStatus === 'failed') {
+    update.failed_reason = 'Image generation failed for all scenes — try a different comic style';
+  }
+  await supabase.from('dreams').update(update).eq('id', dream_id);
+
+  return new Response(JSON.stringify({ ok: true, successCount }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
 });
