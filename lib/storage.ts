@@ -40,8 +40,7 @@ export async function flushUploadQueue(): Promise<void> {
 
         if (error) { remaining.push(entry); continue; }
 
-        const { data: { publicUrl } } = supabase.storage.from('audio').getPublicUrl(entry.remotePath);
-        await supabase.from('dreams').update({ audio_url: publicUrl, status: 'processing' }).eq('id', entry.dreamId);
+        await supabase.from('dreams').update({ audio_url: entry.remotePath, status: 'pending', pipeline_step: 'uploading' }).eq('id', entry.dreamId);
         await supabase.functions.invoke('transcribe', { body: { dream_id: entry.dreamId } });
       } catch {
         remaining.push(entry);
