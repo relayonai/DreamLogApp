@@ -15,6 +15,25 @@ const TONE_INSTRUCTIONS: Record<string, string> = {
   Warmth:  'Add comfort, nostalgia, and gentle sensory detail.',
 };
 
+async function callClaudeWithRetry(
+  anthropic: Anthropic,
+  params: Anthropic.MessageCreateParams,
+  maxRetries = 3,
+): Promise<Anthropic.Message> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const retryable = status === 429 || (status !== undefined && status >= 500);
+      if (!retryable || attempt === maxRetries) throw err;
+      const delay = 1000 * 2 ** attempt * (0.75 + Math.random() * 0.5);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -35,7 +54,7 @@ serve(async (req) => {
 
   let text: string;
   try {
-    const message = await anthropic.messages.create({
+    const message = await callClaudeWithRetry(anthropic, {
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
       messages: [{
@@ -48,7 +67,7 @@ Write 2–4 sentences. Return ONLY the filled text — no preamble.`,
     });
     text = message.content[0].type === 'text' ? message.content[0].text : original_text;
   } catch {
-    return new Response(JSON.stringify({ error: 'AI generation failed' }), {
+    return new Response(JSON.stringify({ error: 'Gap fill unavailable — try again in a moment' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
     });
