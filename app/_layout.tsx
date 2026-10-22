@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, AppState } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { supabase } from '../lib/supabase';
@@ -62,6 +62,20 @@ export default function RootLayout() {
 
   useEffect(() => {
     (async () => {
+      // On web, check for OAuth hash params (Google redirect)
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const hash = window.location.hash;
+        if (hash && (hash.includes('access_token') || hash.includes('error'))) {
+          const params = new URLSearchParams(hash.slice(1));
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+          if (accessToken && refreshToken) {
+            await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setLoading(false);
